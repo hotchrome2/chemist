@@ -1,4 +1,78 @@
-# ✅ SymPy で記号式を構築し、数値代入後に LightGBM で予測する方法
+# lightGBMモデルによる予測値を返すメソッドを数式の中に使いたい
+
+## なぜエラーになるのか？
+```
+rhs_expr = sp.sympify(rhs_eq, locals=locals_dict)
+```
+
+
+## evaluate=False を使う方法
+
+「evaluate=False を使う方法」とは、SymPyの数式を作るときに func_predict(a, b, c) を即実行せず、記号的な関数呼び出しとして保持するためのテクニックです。
+
+今回の問題では、func_predict は LightGBM モデルを使って値を返す実関数なので、そのまま呼び出すとエラーになるわけです。
+この評価を止めるには、sympy.Function を使いつつ evaluate=False を明示する方法があります。
+
+### 解決方法：記号関数として保持する（evaluate=False）
+```
+import sympy as sp
+
+a, b, c = sp.symbols("a b c")
+
+# func_predict を未定義関数として定義（ここでは self.func_predict は使わない）
+FuncPredict = sp.Function("func_predict", evaluate=False)
+
+# 記号的な呼び出し式を作成（評価されない）
+rhs_expr = FuncPredict(a, b, c)
+```
+
+### この方法の意味
+FuncPredict(a, b, c) は、あくまで「記号的に func_predict(a, b, c) と書いてあるだけ」の式です。
+
+実際には LightGBM の predict() は呼ばれません。
+
+あとで .subs() で a, b, c に値を代入して、手動で func_predict を呼びたい場合に活用できます。
+
+
+### もし sympify() に文字列を使う場合の例（evaluate=False 相当）
+```
+from sympy import symbols, sympify, Function
+
+a, b, c = symbols("a b c")
+locals_dict = {
+    "a": a,
+    "b": b,
+    "c": c,
+    "func_predict": Function("func_predict", evaluate=False)
+}
+
+rhs_eq = "func_predict(a, b, c)"
+rhs_expr = sympify(rhs_eq, locals=locals_dict)
+```
+
+
+### その後、数値を代入して評価したい場合
+SymPyの式から実行に使うには、自分で数値を取り出して func_predict() に渡します：
+```
+# 値を与える
+subs_vals = {a: 1.0, b: 2.0, c: 3.0}
+args = [subs_vals[s] for s in (a, b, c)]
+result = self.func_predict(*args)
+```
+
+## まとめ
+func_predict(a, b, c) を 記号関数として式に保持する場合
+- Function("func_predict", evaluate=False) を使う
+
+sympify() で評価させず式を構築する場合
+- locals={"func_predict": Function(..., evaluate=False)}
+
+あとで数値代入して実行する場合
+- subs を使って値を取り出し、関数を呼び出す
+
+
+
+# 2. SymPy で記号式を構築し、数値代入後に LightGBM で予測する方法
 
 ## 📘 前提：`func_predict(self, a, b, c)` は LightGBM による予測関数
 
