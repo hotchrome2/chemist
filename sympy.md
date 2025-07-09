@@ -4,9 +4,48 @@
 ```
 rhs_expr = sp.sympify(rhs_eq, locals=locals_dict)
 ```
+この行の rhs_eq = "func_predict(a, b, c)" によって、sympify は文字列を評価しようとします。
+
+でもそのとき a, b, c は sympy.Symbol であり、func_predict の中ではそれを np.array([[a, b, c]]) に変換し、さらに self.model.predict(...) に渡します。
+
+➡ LightGBMの .predict() は 数値の ndarray しか受け取れないため、Symbol が入っていると 内部でエラーになります。
+
+## 解決方法1：func_predict(a, b, c) を sympy の関数として形式的に扱う
+以下のように、func_predict を直接実行するのではなく、「記号的な関数（UndefinedFunction）」として扱います。
+
+### Function オブジェクトとして扱う方法
+```
+import sympy as sp
+
+a, b, c = sp.symbols("a b c")
+FuncPredict = sp.Function("func_predict")  # 記号的な関数として定義
+
+rhs_expr = FuncPredict(a, b, c)
+```
+##  「評価を遅延させたい」のであれば…
+SymPyに「func_predict = 実際のPython関数」として登録しつつも、それを sympify 内で評価させたくないなら、evaluate=False を使ったり、Function を明示的に使うのが正解です。
+
+## 数値を代入して LightGBM で予測させたいときは？
+```
+# 記号的に構成した式
+rhs_expr = FuncPredict(a, b, c)
+
+# 数値代入
+subs_dict = {a: 1.2, b: 3.4, c: 5.6}
+evaluated_args = [subs_dict[sym] for sym in (a, b, c)]
+
+# 自分で評価して呼び出す（数値を渡して実行）
+result = self.func_predict(*evaluated_args)
+```
+## まとめ
+| やりたいこと                                   | 方法                                       |
+| ---------------------------------------- | ---------------------------------------- |
+| `func_predict(a, b, c)` を **記号的に式に使いたい** | `sp.Function("func_predict")` を使って形式的に定義 |
+| `func_predict` を **数値で呼び出したい**           | `subs_dict` に基づいて値を取り出し、明示的に関数を呼び出す      |
+| `sympify` 内で関数を評価したいが、LightGBMに渡せない      | → そもそも `sympify` は不適（数式評価エンジンではない）       |
 
 
-## evaluate=False を使う方法
+## 解決方法2：evaluate=False を使う方法
 
 「evaluate=False を使う方法」とは、SymPyの数式を作るときに func_predict(a, b, c) を即実行せず、記号的な関数呼び出しとして保持するためのテクニックです。
 
@@ -69,8 +108,6 @@ sympify() で評価させず式を構築する場合
 
 あとで数値代入して実行する場合
 - subs を使って値を取り出し、関数を呼び出す
-
-
 
 # 2. SymPy で記号式を構築し、数値代入後に LightGBM で予測する方法
 
