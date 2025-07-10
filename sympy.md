@@ -1,4 +1,4 @@
-# lightGBMモデルによる予測値を返すメソッドを数式の中に使いたい
+# 1. lightGBMモデルによる予測値を返すメソッドを数式の中に使いたい
 
 ## なぜエラーになるのか？
 ```
@@ -180,3 +180,54 @@ else:
 この流れにより、\*\*「SymPyで式を記号的に表現しつつ、あとで数値を入れて LightGBM による予測を行う」\*\*という処理を安全に実装できます。
 
 必要であれば、複数の `rhs_expr` をループで処理してバッチ予測も可能です。
+
+# 3. 複数のメソッド名に柔軟に対応したい
+ympy.sympify() で構築した式に登場する文字列（例："self_func_predict"）に応じて、対応する self メソッド（例：self.func_predict）を呼び出す。
+- メソッド名をパースし、存在するメソッドなら引数を渡し呼び出す
+
+## 実装例（柔軟なメソッド呼び出し対応）
+```
+import sympy as sp
+import numpy as np
+import lightgbm as lgb
+
+class MyModel:
+    def __init__(self):
+        self.model = lgb.Booster(model_file="model.txt")
+    
+    def func_predict(self, a, b, c):
+        data = np.array([[a, b, c]])
+        return self.model.predict(data)
+    
+    def func_other(self, a, b, c):
+        return a + b + c  # 仮の別メソッド
+
+    def evaluate_symbolic_expr(self, expr):
+        if isinstance(expr, sp.Function):
+            func_name = str(expr.func)  # 例: 'self_func_predict'
+            if func_name.startswith("self_"):
+                method_name = func_name.replace("self_", "")
+                if hasattr(self, method_name):
+                    method = getattr(self, method_name)
+                    args = expr.args
+                    return method(*args)
+                else:
+                    raise AttributeError(f"メソッド {method_name} は存在しません")
+        raise TypeError("関数呼び出し式のみ評価可能です")
+
+# --- 使用例 ---
+
+a, b, c = sp.symbols("a b c")
+func_symbol = sp.Function("self_func_predict", evaluate=False)
+rhs_eq = "self_func_predict(a, b, c)"
+locals_dict = {"a": a, "b": b, "c": c, "self_func_predict": func_symbol}
+rhs_expr = sp.sympify(rhs_eq, locals=locals_dict)
+
+# 数値を代入して関数呼び出し式に変換
+subs_expr = rhs_expr.subs({a: 1.1, b: 2.2, c: 3.3})  # → self_func_predict(1.1, 2.2, 3.3)
+
+# 実行
+model = MyModel()
+result = model.evaluate_symbolic_expr(subs_expr)
+print(f"予測結果: {result}")
+```
