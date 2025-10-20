@@ -63,3 +63,66 @@ def find_missing_datetimes(strs, target_date):
     }
 
     return result
+
+
+def find_missing_datetimes_from_dtlist(dt_list, target_date):
+    """
+    すでに datetime 型（pd.Timestamp, datetime.datetime など）のリストを受け取り、
+    指定日の10秒間隔インデックスを基準に欠落や不正を検出する。
+
+    Parameters
+    ----------
+    dt_list : list of datetime-like
+        調査対象の datetime 型リスト。
+        例: [pd.Timestamp("2025-10-20 00:00:00"), pd.Timestamp("2025-10-20 00:00:10"), ...]
+    target_date : datetime.date
+        対象の日付（例: datetime.date(2025, 10, 20)）
+
+    Returns
+    -------
+    result : dict
+        欠落や不正データの情報をまとめた辞書。
+        {
+            "match": bool,
+            "missing_count": int,
+            "missing_index": DatetimeIndex,
+            "invalid_count": int,
+            "invalid_positions": list[int]
+        }
+    """
+
+    # --- 1. 正解のDatetimeIndexを生成（10秒間隔、1日分） ---
+    start = pd.Timestamp(datetime.datetime.combine(target_date, datetime.time(0, 0, 0)))
+    end = start + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+    truth_index = pd.date_range(start=start, end=end, freq="10S")
+
+    # --- 2. 入力をSeries化（型チェック・NaT除外） ---
+    s = pd.Series(dt_list)
+    invalid_mask = s.isna()
+    invalid_positions = s[invalid_mask].index.tolist()
+    invalid_count = len(invalid_positions)
+
+    # NaT 以外のみ残す
+    s = s.dropna()
+
+    # --- 3. Trueフラグを値にしたSeriesを作成 ---
+    s_found = pd.Series(True, index=s).sort_index()
+
+    # --- 4. 正解インデックスに合わせて再インデックス ---
+    aligned = s_found.reindex(truth_index)
+
+    # --- 5. 欠落検出 ---
+    is_missing = aligned.isna()
+    missing_index = aligned[is_missing].index
+    missing_count = int(is_missing.sum())
+
+    # --- 6. 結果まとめ ---
+    result = {
+        "match": missing_count == 0 and invalid_count == 0,
+        "missing_count": missing_count,
+        "missing_index": missing_index,
+        "invalid_count": invalid_count,
+        "invalid_positions": invalid_positions
+    }
+
+    return result
